@@ -1,0 +1,12 @@
+{
+    "display_name": "ChatDal Prompt Folders",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "User",
+    "version": "1.0.0",
+    "homePage": "https://github.com/appetizerpie/extract",
+    "auto_update": true
+}

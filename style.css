@@ -1,0 +1,397 @@
+/* ============================================================
+   Prompt Folders & Search — Styles
+   ============================================================ */
+
+/* ★ Hide prompt manager separator */
+#completion_prompt_manager .completion_prompt_manager_list_separator hr {
+    display: none !important;
+}
+
+
+/* ─── Toolbar ─── */
+.pf-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    margin: 0;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #555);
+}
+
+.pf-search-wrap {
+    display: flex;
+}
+
+.pf-search-input {
+    width: 100%;
+    padding: 5px 10px;
+    font-size: 13px;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 5px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, .3));
+    color: var(--SmartThemeBodyColor, #ccc);
+}
+
+.pf-search-input::placeholder {
+    color: var(--SmartThemeBodyColor, #999);
+    opacity: 0.6;
+}
+
+.pf-btn-wrap {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.pf-btn {
+    font-size: 12px !important;
+    padding: 3px 8px !important;
+    white-space: nowrap;
+}
+
+/* ─── Folder Header ─── */
+.pf-folder-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto auto auto;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    margin: 2px 0;
+    border-radius: 5px;
+    background: var(--SmartThemeBlurTintColor, rgba(60, 60, 80, 0.5));
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s, border-color 0.2s;
+    font-weight: 600;
+    font-size: 13px;
+    grid-column: 1 / -1;
+}
+
+.pf-folder-header:hover {
+    background: var(--SmartThemeChatTintColor, rgba(80, 80, 110, 0.6));
+    border-color: var(--SmartThemeQuoteColor, #888);
+}
+
+.pf-arrow {
+    font-size: 11px;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.pf-folder-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.pf-count {
+    font-size: 11px;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.pf-folder-toggle {
+    cursor: pointer;
+    font-size: 13px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+    padding: 0 2px;
+    flex-shrink: 0;
+}
+
+.pf-folder-toggle:hover {
+    opacity: 1;
+}
+
+.pf-action-btn-always {
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.pf-action-btn-always:hover {
+    opacity: 1;
+}
+
+/* ─── Uncategorized Header ─── */
+.pf-uncat-header {
+    display: flex;
+    align-items: center;
+    padding: 5px 10px;
+    margin: 6px 0 2px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    border-top: 1px solid var(--SmartThemeBorderColor, #444);
+    cursor: default;
+    grid-column: 1 / -1;
+}
+
+/* ─── Folder items indent ─── */
+.pf-folder-item {
+    border-left: 3px solid var(--SmartThemeBorderColor, #555) !important;
+    margin-left: 8px !important;
+    width: calc(100% - 8px) !important;
+    box-sizing: border-box !important;
+    grid-template-columns: 5fr 80px 55px !important;
+}
+
+/* ─── Folder assign button ─── */
+.pf-folder-btn {
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+    padding-left: 5px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.pf-folder-btn:hover {
+    opacity: 1;
+}
+
+/* ─── Folder Picker ─── */
+.pf-picker {
+    background: var(--SmartThemeBlurTintColor, #2a2a2a);
+    border: 1px solid var(--SmartThemeBorderColor, #666);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    max-height: 300px;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
+}
+
+.pf-picker-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.1s;
+    color: var(--SmartThemeBodyColor, #ccc);
+}
+
+.pf-picker-item:hover {
+    background: var(--SmartThemeChatTintColor, rgba(80, 80, 110, 0.5));
+}
+
+.pf-picker-selected {
+    font-weight: 700;
+    border-left: 3px solid var(--SmartThemeQuoteColor, #7b8dff);
+}
+
+/* ─── Modal Overlay ─── */
+.pf-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
+    background: rgba(0, 0, 0, .55) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
+.pf-modal-inner {
+    background: var(--SmartThemeBlurTintColor, #2a2a3a);
+    border: 1px solid var(--SmartThemeBorderColor, #666);
+    border-radius: 8px;
+    padding: 16px;
+    min-width: 260px;
+    max-width: 420px;
+    width: 90%;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
+    color: var(--SmartThemeBodyColor, #ccc);
+}
+
+/* ─── Popup shared ─── */
+.pf-popup-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.pf-popup-field {
+    margin-bottom: 10px;
+}
+
+.pf-popup-field>label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+    opacity: 0.8;
+}
+
+.pf-popup-field input[type="text"],
+.pf-popup-field select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.pf-popup-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+/* ─── Color row ─── */
+.pf-color-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.pf-color-row label {
+    min-width: 50px;
+}
+
+.pf-color-row input[type="color"] {
+    width: 40px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: none;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.pf-color-row input[type="text"] {
+    width: 90px;
+    font-size: 12px;
+    padding: 3px 6px;
+    box-sizing: border-box;
+}
+
+/* ─── Prompt checklist ─── */
+.pf-prompt-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 4px;
+    padding: 4px;
+    background: rgba(0, 0, 0, .15);
+}
+
+.pf-prompt-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.1s;
+}
+
+.pf-prompt-check:hover {
+    background: rgba(255, 255, 255, .05);
+}
+
+.pf-prompt-check input[type="checkbox"] {
+    flex-shrink: 0;
+}
+
+.pf-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(123, 141, 255, 0.2);
+    color: var(--SmartThemeQuoteColor, #7b8dff);
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+
+.pf-badge-none {
+    background: rgba(255, 255, 255, .1);
+    color: var(--SmartThemeBodyColor, #999);
+}
+
+/* ─── Filter row + select-all ─── */
+.pf-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.pf-filter-row .pf-category-filter {
+    flex: 1;
+    font-size: 12px;
+}
+
+.pf-select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.pf-bulk-select-all {
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.pf-bulk-select-all label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pf-confirm-msg {
+    font-size: 13px;
+    text-align: center;
+    padding: 8px 0;
+    white-space: pre-line;
+}
+
+/* ─── Empty state ─── */
+.pf-empty-msg {
+    text-align: center;
+    padding: 12px 8px;
+    font-size: 12px;
+    opacity: 0.5;
+    font-style: italic;
+}
+
+/* ─── Folder DnD ─── */
+.pf-folder-header[draggable="true"] {
+    cursor: grab;
+}
+
+.pf-folder-header.pf-dragging {
+    opacity: 0.4 !important;
+    cursor: grabbing;
+}
+
+.pf-folder-header.pf-drag-over-top {
+    border-top: 3px solid var(--SmartThemeQuoteColor, #7b8dff) !important;
+}
+
+.pf-folder-header.pf-drag-over-bottom {
+    border-bottom: 3px solid var(--SmartThemeQuoteColor, #7b8dff) !important;
+}
+
+[data-pf-folder] {
+    transition: none;
+}
