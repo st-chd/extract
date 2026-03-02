@@ -200,6 +200,14 @@
                 .filter(Boolean);
             if (!orderedIds.length) return;
 
+            const d = getPresetData();
+            let extensionOrderChanged = false;
+            if (!d.promptOrder || d.promptOrder.join(',') !== orderedIds.join(',')) {
+                d.promptOrder = orderedIds;
+                markDirty();
+                extensionOrderChanged = true;
+            }
+
             // Access the prompt manager's internal list and reorder
             if (pm.serviceSettings && pm.serviceSettings.prompts) {
                 const prompts = pm.serviceSettings.prompts;
@@ -215,9 +223,30 @@
                 for (const p of prompts) {
                     if (!used.has(p.identifier)) reordered.push(p);
                 }
-                // Replace in-place
-                prompts.length = 0;
-                reordered.forEach(p => prompts.push(p));
+
+                // Check if order actually changed
+                let changed = false;
+                if (prompts.length === reordered.length) {
+                    for (let i = 0; i < prompts.length; i++) {
+                        if (prompts[i].identifier !== reordered[i].identifier) { changed = true; break; }
+                    }
+                } else { changed = true; }
+
+                if (changed || extensionOrderChanged) {
+                    if (changed) {
+                        // Replace in-place
+                        prompts.length = 0;
+                        reordered.forEach(p => prompts.push(p));
+                    }
+
+                    // Flush folder and order settings immediately when drag-and-drop modifies order
+                    if (extensionOrderChanged) {
+                        persistNow();
+                    } else if (changed && typeof ctx === 'function') {
+                        const context = ctx();
+                        if (context.saveSettingsDebounced) context.saveSettingsDebounced();
+                    }
+                }
             }
         } catch (e) {
             console.warn('[PF] syncPromptOrder error:', e);
@@ -302,7 +331,8 @@
             mkBtn('📁 추가', () => showAddFolderPopup()),
             mkBtn('⬆ 접기', () => { getPresetData().folders.forEach(f => f.collapsed = true); markDirty(); rebuildFolderUI(); }),
             mkBtn('⬇ 펼치기', () => { getPresetData().folders.forEach(f => f.collapsed = false); markDirty(); rebuildFolderUI(); }),
-            mkBtn('📋 대량 편집', () => showBulkEditPopup()),
+            mkBtn('🔨 편집', () => showBulkEditPopup()),
+            mkBtn('📥', () => showImportSettingsPopup()),
         ].forEach(b => bw.appendChild(b));
 
         wrap.appendChild(sw);
@@ -433,8 +463,8 @@
         inner.innerHTML = `
             <div class="pf-popup-title" style="display:flex;align-items:center;justify-content:center;gap:8px">✏️ 폴더 편집<button class="pf-btn menu_button pf-delete-folder" style="color:#ff6b6b;font-size:11px;padding:2px 6px!important;margin-left:auto">🗑️ 삭제</button></div>
             <div class="pf-popup-field"><label>이름:</label><input type="text" class="pf-edit-name text_pole" value="${folder.name}"></div>
-            <div class="pf-color-row"><label>배경색:</label><input type="color" class="pf-cbg" value="${folder.bgColor || '#3a3a3a'}"><input type="text" class="pf-cbg-hex text_pole" value="${folder.bgColor || '#3a3a3a'}"><button class="pf-btn menu_button pf-reset-bg" style="font-size:11px;padding:2px 6px!important">↺</button></div>
-            <div class="pf-color-row"><label>글자색:</label><input type="color" class="pf-ctx" value="${folder.textColor || '#cccccc'}"><input type="text" class="pf-ctx-hex text_pole" value="${folder.textColor || '#cccccc'}"><button class="pf-btn menu_button pf-reset-tx" style="font-size:11px;padding:2px 6px!important">↺</button></div>
+            <div class="pf-color-row"><label>배경색:</label><input type="color" class="pf-cbg" value="${folder.bgColor || '#3a3a3a'}"><input type="text" class="pf-cbg-hex text_pole" placeholder="(UI 설정 따름)" value="${folder.bgColor || ''}"><button class="pf-btn menu_button pf-reset-bg" style="font-size:11px;padding:2px 6px!important" title="UI 설정 사용">↺</button></div>
+            <div class="pf-color-row"><label>글자색:</label><input type="color" class="pf-ctx" value="${folder.textColor || '#cccccc'}"><input type="text" class="pf-ctx-hex text_pole" placeholder="(UI 설정 따름)" value="${folder.textColor || ''}"><button class="pf-btn menu_button pf-reset-tx" style="font-size:11px;padding:2px 6px!important" title="UI 설정 사용">↺</button></div>
             <div class="pf-popup-actions">
                 <button class="pf-btn menu_button pf-popup-ok">적용</button>
                 <button class="pf-btn menu_button pf-popup-cancel">취소</button>
@@ -446,8 +476,8 @@
         bgH.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(bgH.value)) bgP.value = bgH.value; });
         txP.addEventListener('input', () => txH.value = txP.value);
         txH.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(txH.value)) txP.value = txH.value; });
-        inner.querySelector('.pf-reset-bg').addEventListener('click', () => { bgP.value = '#3a3a3a'; bgH.value = '#3a3a3a'; });
-        inner.querySelector('.pf-reset-tx').addEventListener('click', () => { txP.value = '#cccccc'; txH.value = '#cccccc'; });
+        inner.querySelector('.pf-reset-bg').addEventListener('click', () => { bgP.value = '#3a3a3a'; bgH.value = ''; });
+        inner.querySelector('.pf-reset-tx').addEventListener('click', () => { txP.value = '#cccccc'; txH.value = ''; });
         inner.querySelector('.pf-popup-ok').addEventListener('click', () => {
             const n = inner.querySelector('.pf-edit-name').value.trim();
             if (n) renameFolder(folder.id, n);
@@ -626,6 +656,115 @@
             markDirty(); overlay.remove(); rebuildFolderUI();
         });
         inner.querySelector('.pf-popup-cancel').addEventListener('click', () => overlay.remove());
+    }
+
+    /* ─── Import Settings ─── */
+    function showImportSettingsPopup() {
+        const { extensionSettings } = ctx();
+        const allPresets = extensionSettings[MODULE_NAME]?.presets || {};
+        const presetNames = Object.keys(allPresets).filter(p => p !== workingPreset);
+
+        if (presetNames.length === 0) {
+            showConfirmPopup('가져올 다른 프리셋이 없습니다.', () => { });
+            return;
+        }
+
+        const inner = document.createElement('div');
+        inner.className = 'pf-modal-inner';
+
+        let options = '';
+        presetNames.forEach(p => options += `<option value="${p}">${p}</option>`);
+
+        inner.innerHTML = `
+            <div class="pf-popup-title">📥 다른 프리셋에서 설정 가져오기</div>
+            <div class="pf-popup-field">
+                <label>가져올 프리셋:</label>
+                <select class="pf-import-select text_pole">${options}</select>
+            </div>
+            <div class="pf-popup-field" style="font-size:12px;color:#aaa;margin-top:10px;line-height:1.4;">
+                현재 폴더 설정에 선택한 프리셋의 폴더 구조와<br>프롬프트 할당 정보가 추가/병합됩니다.<br>
+                (프롬프트 내부 ID 기반)
+            </div>
+            <div class="pf-popup-actions">
+                <button class="pf-btn menu_button pf-popup-ok">가져오기</button>
+                <button class="pf-btn menu_button pf-popup-cancel">취소</button>
+            </div>`;
+
+        const overlay = createModalOverlay(inner);
+        inner.querySelector('.pf-popup-ok').addEventListener('click', () => {
+            const presetName = inner.querySelector('.pf-import-select').value;
+            if (presetName && allPresets[presetName]) {
+                importSettingsFromPreset(allPresets[presetName]);
+                overlay.remove();
+                showConfirmPopup('폴더 설정을 성공적으로 가져왔습니다.', () => { });
+            }
+        });
+        inner.querySelector('.pf-popup-cancel').addEventListener('click', () => overlay.remove());
+    }
+
+    function importSettingsFromPreset(sourceData) {
+        if (!sourceData || !sourceData.folders) return;
+        const d = getPresetData();
+
+        const folderIdMap = {};
+
+        sourceData.folders.forEach(srcFolder => {
+            let existing = d.folders.find(f => f.name === srcFolder.name);
+            if (existing) {
+                folderIdMap[srcFolder.id] = existing.id;
+            } else {
+                const newId = 'pf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                d.folders.push({
+                    id: newId,
+                    name: srcFolder.name,
+                    collapsed: srcFolder.collapsed,
+                    order: d.folders.length,
+                    bgColor: srcFolder.bgColor || '',
+                    textColor: srcFolder.textColor || ''
+                });
+                folderIdMap[srcFolder.id] = newId;
+            }
+        });
+
+        if (sourceData.assignments) {
+            Object.keys(sourceData.assignments).forEach(identifier => {
+                const srcFolderId = sourceData.assignments[identifier];
+                const destFolderId = folderIdMap[srcFolderId];
+                if (destFolderId) {
+                    d.assignments[identifier] = destFolderId;
+                }
+            });
+        }
+
+        if (sourceData.promptOrder && sourceData.promptOrder.length > 0) {
+            d.promptOrder = [...sourceData.promptOrder];
+
+            // Reorder the DOM explicitly here to match sourceData.promptOrder
+            const list = getListContainer();
+            if (list) {
+                const rows = getPromptRows(list);
+                const orderMap = {};
+                sourceData.promptOrder.forEach((id, idx) => { orderMap[id] = idx; });
+
+                rows.sort((a, b) => {
+                    const idA = a.getAttribute('data-pm-identifier');
+                    const idB = b.getAttribute('data-pm-identifier');
+                    const pA = orderMap[idA] ?? 999999;
+                    const pB = orderMap[idB] ?? 999999;
+                    return pA - pB;
+                });
+
+                // Append rows to their parent based on new order
+                if (rows.length > 0) {
+                    const parent = rows[0].parentElement;
+                    rows.forEach(row => parent.appendChild(row));
+                }
+            }
+        }
+
+        markDirty();
+        persistNow(); // auto-save the imported settings
+        rebuildFolderUI();
     }
 
 
