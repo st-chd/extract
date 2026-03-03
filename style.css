@@ -7,6 +7,11 @@
     display: none !important;
 }
 
+/* ★ 프롬프트 행 열 너비 조정 (폴더 아이콘 추가로 인한 줄바꿈 방지) */
+#completion_prompt_manager #completion_prompt_manager_list li {
+    grid-template-columns: 4fr 80px 60px;
+}
+
 
 /* ─── 도구 모음 (Toolbar) ─── */
 .pf-toolbar {
@@ -417,4 +422,20 @@
 .sortable-drag {
     pointer-events: none !important;
     opacity: 0.6 !important;
+}
+
+/* ─── 드래그 중 폴더 이름 표시 (DOM 추가 없이 CSS ::before로 표시) ─── */
+[data-pf-drag-label]::before {
+    content: attr(data-pf-drag-label);
+    display: block;
+    padding: 2px 10px;
+    margin: 0 0 1px 0;
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--SmartThemeBodyColor, #ccc);
+    background: rgba(255, 255, 255, 0.06);
+    border-left: 3px solid var(--SmartThemeQuoteColor, #7b8dff);
+    border-radius: 2px;
+    pointer-events: none;
+    opacity: 0.7;
 }

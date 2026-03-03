@@ -18,6 +18,7 @@
     let isImporting = false;
     let needsSTSync = false; // 유저가 폴더를 직접 다시 정렬할 때만 참(true)이 됩니다.
     let wasDragging = false; // 기본 드래그 앤 드롭 동작 추적용
+    let pendingSaveAs = false; // "프리셋으로 저장" 버튼이 눌렸을 때 true
 
     /* ─── 설정 도우미 (Settings helpers) ─── */
     function ctx() { return SillyTavern.getContext(); }
@@ -29,6 +30,33 @@
     function ensureStorageExists() {
         const { extensionSettings } = ctx();
         if (!extensionSettings[MODULE_NAME]) extensionSettings[MODULE_NAME] = { presets: {} };
+    }
+
+    // ST에서 삭제된 프리셋의 폴더 데이터를 정리
+    function cleanupOldPresets() {
+        const sel = document.getElementById('settings_preset_openai');
+        if (!sel) return;
+        const { extensionSettings } = ctx();
+        const presets = extensionSettings[MODULE_NAME]?.presets;
+        if (!presets) return;
+
+        const stNames = new Set();
+        Array.from(sel.options).forEach(opt => {
+            const name = (opt.textContent || '').trim() || opt.value;
+            if (name) stNames.add(name);
+        });
+
+        let cleaned = 0;
+        for (const key of Object.keys(presets)) {
+            if (!stNames.has(key)) {
+                delete presets[key];
+                cleaned++;
+            }
+        }
+        if (cleaned > 0) {
+            console.log(`[PF] ${cleaned}개의 삭제된 프리셋 폴더 데이터 정리 완료`);
+            ctx().saveSettingsDebounced();
+        }
     }
 
     function getCurrentPresetName() {
@@ -48,6 +76,7 @@
         const session = extensionSettings[MODULE_NAME].sessionState;
 
         if (isFirstLoad) {
+            cleanupOldPresets(); // 초기 로드 시에만 삭제된 프리셋 데이터 정리
             // F5 새로고침 또는 처음 시작: 현재 프리셋과 일치하면 세션 상태 복구
             if (session && session.preset === p && session.data) {
                 workingData = JSON.parse(JSON.stringify(session.data));
@@ -59,21 +88,36 @@
             // 세션 도중 프리셋 변경
             const saved = extensionSettings[MODULE_NAME].presets[p];
             if (saved) {
-                // 기존에 저장된 데이터가 있는 프리셋으로 이동: 저장된 걸 불러옴
                 workingData = JSON.parse(JSON.stringify(saved));
-            } else {
-                // [다른 이름으로 저장(Save As) 버그 픽스]
-                // 새로 만들어진 프리셋이어서 저장된 폴더 데이터가 아예 없는 경우:
-                // 이전 프리셋에서 사용 중이던 구조(workingData)를 새 프리셋으로 복사하여 날아가는 현상 방지.
-                if (workingData) {
-                    console.log(`[PF] Save As detected: carried over existing folders into ${p}`);
-                    // workingData 유지 (복사 처리)
-                    dirty = true; // 새로운 프리셋에 해당 변경사항이 저장될 수 있도록 더티 마킹
+            } else if (pendingSaveAs && workingData) {
+                // [프리셋으로 저장] 버튼을 눌렀을 때: 현재 폴더를 새 이름으로 영구 저장
+                console.log(`[PF] Save As: 폴더 설정을 새 프리셋 '${p}'에 영구 저장`);
+                pendingSaveAs = false;
+                extensionSettings[MODULE_NAME].presets[p] = JSON.parse(JSON.stringify(workingData));
+            } else if (workingData && workingPreset) {
+                // [이름 변경 감지] 이전 이름이 드롭다운에서 사라졌으면 = 이름 변경!
+                const sel = document.getElementById('settings_preset_openai');
+                const stNames = new Set();
+                if (sel) Array.from(sel.options).forEach(opt => {
+                    const name = (opt.textContent || '').trim() || opt.value;
+                    if (name) stNames.add(name);
+                });
+                if (!stNames.has(workingPreset) && stNames.has(p)) {
+                    // 이전 이름 사라짐 + 새 이름 등장 = 이름 변경!
+                    console.log(`[PF] 프리셋 이름 변경 감지: '${workingPreset}' → '${p}', 폴더 데이터 이전`);
+                    // 이전 이름의 영구 저장 데이터도 새 이름으로 이전
+                    if (extensionSettings[MODULE_NAME].presets[workingPreset]) {
+                        extensionSettings[MODULE_NAME].presets[p] = extensionSettings[MODULE_NAME].presets[workingPreset];
+                        delete extensionSettings[MODULE_NAME].presets[workingPreset];
+                    }
+                    // workingData는 그대로 유지 (임시저장 상태 보존)
                 } else {
+                    // 새 프리셋 (Import 등): 빈 폴더로 시작
                     workingData = { folders: [], assignments: {} };
                 }
+            } else {
+                workingData = { folders: [], assignments: {} };
             }
-            // 변경된 상태를 세션 상태에 반영
             extensionSettings[MODULE_NAME].sessionState = { preset: p, data: JSON.parse(JSON.stringify(workingData)) };
             ctx().saveSettingsDebounced();
         }
@@ -91,7 +135,7 @@
 
     function markDirty() {
         dirty = true;
-        // F5를 눌러도 상태가 유지되도록, 실제 프리셋 파일을 덮어쓰지 않고 sessionState에만 자동 저장합니다
+        // F5를 눌러도 상태가 유지되도록 sessionState에만 임시 저장 (실제 프리셋에는 저장 버튼 클릭 시에만 저장)
         const { extensionSettings } = ctx();
         extensionSettings[MODULE_NAME].sessionState = { preset: workingPreset, data: JSON.parse(JSON.stringify(workingData)) };
         ctx().saveSettingsDebounced();
@@ -109,11 +153,22 @@
     }
 
     function hookSaveButton() {
+        // ① 현재 프리셋 업데이트 (그냥 저장)
         const btn = document.getElementById('update_oai_preset');
         if (!btn) { setTimeout(hookSaveButton, 2000); return; }
         if (btn._pfHooked) return;
         btn._pfHooked = true;
         btn.addEventListener('click', () => { if (dirty) persistNow(); });
+
+        // ② 프리셋으로 저장 (다른 이름으로 저장) — 현재 폴더를 새 이름으로 영구 저장
+        const saveAsBtn = document.getElementById('new_oai_preset');
+        if (saveAsBtn && !saveAsBtn._pfHooked) {
+            saveAsBtn._pfHooked = true;
+            saveAsBtn.addEventListener('click', () => {
+                pendingSaveAs = true;
+                console.log('[PF] Save As 버튼 감지: 폴더 이어받기 대기 중');
+            });
+        }
     }
 
     /* ─── Folder CRUD ─── */
@@ -483,6 +538,15 @@
             .filter(Boolean).join('|');
 
         if (searchQuery) applySearchFilter(rows);
+
+        // [드래그 렉 해결 핵심] SortableJS가 우리가 삽입한 폴더 헤더를 무시하도록 패치
+        patchSortable(list);
+
+        // ★ [깜빡임 방지] 프리셋 전환 시 리빌드가 완전히 끝난 후에만 리스트를 다시 표시
+        if (isSwitchingPreset) {
+            isSwitchingPreset = false;
+            list.style.visibility = '';
+        }
     }
 
     /* ─── 도구 모음 (Toolbar) ─── */
@@ -814,6 +878,8 @@
         if (!d.folders.length) { showConfirmPopup('먼저 폴더를 추가하세요', () => { }); return; }
         const inner = document.createElement('div');
         inner.className = 'pf-modal-inner';
+
+        // ─── 프롬프트 이동 모드 HTML ─── 
         let plHTML = '';
         for (const row of rows) {
             const id = row.getAttribute('data-pm-identifier');
@@ -825,40 +891,116 @@
         }
         let foHTML = '<option value="">미분류</option>';
         for (const f of [...d.folders].sort((a, b) => a.order - b.order)) foHTML += `<option value="${f.id}">📁 ${f.name}</option>`;
-        // 필터 옵션
-        let filterHTML = '<option value="__all__">전체</option><option value="">미분류</option>';
+        let filterHTML = '<option value="">미분류</option><option value="__all__">전체</option>';
         for (const f of [...d.folders].sort((a, b) => a.order - b.order)) filterHTML += `<option value="${f.id}">📁 ${f.name}</option>`;
 
+        // ─── 폴더 삭제 모드 HTML ───
+        let folderListHTML = '';
+        for (const f of [...d.folders].sort((a, b) => a.order - b.order)) {
+            const count = Object.values(d.assignments).filter(v => v === f.id).length;
+            folderListHTML += `<label class="pf-prompt-check"><input type="checkbox" value="${f.id}"><span class="pf-prompt-name">📁 ${f.name}</span><span class="pf-badge">${count}개 프롬프트</span></label>`;
+        }
+
         inner.innerHTML = `
-            <div class="pf-popup-title">📋 대량 편집</div>
-            <div class="pf-popup-field"><label>프롬프트 이동:</label>
-                <div class="pf-filter-row">
-                    <select class="pf-category-filter text_pole">${filterHTML}</select>
-                    <label class="pf-select-all-label"><input type="checkbox" class="pf-bulk-check-all"> 전체 선택</label>
-                </div>
-                <div class="pf-prompt-list">${plHTML}</div></div>
-            <div class="pf-popup-field"><label>이동할 폴더:</label><select class="pf-bulk-target text_pole">${foHTML}</select></div>
-            <div class="pf-popup-actions"><button class="pf-btn menu_button pf-popup-ok">이동</button><button class="pf-btn menu_button pf-popup-cancel">취소</button></div>`;
+            <div class="pf-popup-title" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>📋 대량 편집</span>
+                <button class="pf-btn menu_button pf-toggle-delete-mode" style="font-size:12px;padding:2px 8px;">🗑️ 폴더 삭제</button>
+            </div>
+            <div class="pf-bulk-move-mode">
+                <div class="pf-popup-field"><label>프롬프트 이동:</label>
+                    <div class="pf-filter-row">
+                        <select class="pf-category-filter text_pole">${filterHTML}</select>
+                        <label class="pf-select-all-label"><input type="checkbox" class="pf-bulk-check-all"> 전체 선택</label>
+                    </div>
+                    <div class="pf-prompt-list">${plHTML}</div></div>
+                <div class="pf-popup-field"><label>이동할 폴더:</label><select class="pf-bulk-target text_pole">${foHTML}</select></div>
+                <div class="pf-popup-actions"><button class="pf-btn menu_button pf-popup-ok">이동</button><button class="pf-btn menu_button pf-popup-cancel">취소</button></div>
+            </div>
+            <div class="pf-bulk-delete-mode" style="display:none;">
+                <div class="pf-popup-field"><label>삭제할 폴더 선택:</label>
+                    <div style="margin-top:4px;"><label class="pf-select-all-label"><input type="checkbox" class="pf-bulk-delete-check-all"> 전체 선택</label></div>
+                    <div class="pf-prompt-list">${folderListHTML}</div></div>
+                <div class="pf-popup-field" style="font-size:12px;color:#f88;line-height:1.4;">⚠️ 삭제된 폴더의 프롬프트는 미분류로 이동됩니다.</div>
+                <div class="pf-popup-actions"><button class="pf-btn menu_button pf-popup-delete" style="background:rgba(255,60,60,0.3);">🗑️ 삭제</button><button class="pf-btn menu_button pf-popup-cancel2">취소</button></div>
+            </div>`;
 
         setupCategoryFilter(inner);
+        // 기본 필터(미분류)를 즉시 적용
+        const filterSel = inner.querySelector('.pf-category-filter');
+        if (filterSel) filterSel.dispatchEvent(new Event('change'));
+
+        // 모드 토글
+        const moveMode = inner.querySelector('.pf-bulk-move-mode');
+        const deleteMode = inner.querySelector('.pf-bulk-delete-mode');
+        const toggleBtn = inner.querySelector('.pf-toggle-delete-mode');
+        let isDeleteMode = false;
+        toggleBtn.addEventListener('click', () => {
+            isDeleteMode = !isDeleteMode;
+            moveMode.style.display = isDeleteMode ? 'none' : '';
+            deleteMode.style.display = isDeleteMode ? '' : 'none';
+            toggleBtn.textContent = isDeleteMode ? '📋 프롬프트 이동' : '🗑️ 폴더 삭제';
+        });
+
+        // 폴더 삭제 전체 선택
+        const deleteCheckAll = inner.querySelector('.pf-bulk-delete-check-all');
+        if (deleteCheckAll) {
+            deleteCheckAll.addEventListener('change', () => {
+                deleteMode.querySelectorAll('.pf-prompt-check input[type="checkbox"]').forEach(cb => {
+                    cb.checked = deleteCheckAll.checked;
+                });
+            });
+        }
 
         const overlay = createModalOverlay(inner);
+
+        // 프롬프트 이동 실행
         inner.querySelector('.pf-popup-ok').addEventListener('click', () => {
             const t = inner.querySelector('.pf-bulk-target').value || null;
             const dd = getPresetData();
-            inner.querySelectorAll('.pf-prompt-check input:checked').forEach(cb => {
+            inner.querySelectorAll('.pf-bulk-move-mode .pf-prompt-check input:checked').forEach(cb => {
                 if (t) dd.assignments[cb.value] = t; else delete dd.assignments[cb.value];
             });
             markDirty(); overlay.remove(); rebuildFolderUI();
         });
+
+        // 폴더 삭제 실행
+        inner.querySelector('.pf-popup-delete').addEventListener('click', () => {
+            const checkedIds = [];
+            deleteMode.querySelectorAll('.pf-prompt-check input:checked').forEach(cb => checkedIds.push(cb.value));
+            if (checkedIds.length === 0) return;
+            showConfirmPopup(`${checkedIds.length}개의 폴더를 삭제하시겠습니까?`, () => {
+                const dd = getPresetData();
+                const deleteSet = new Set(checkedIds);
+                // 폴더 삭제
+                dd.folders = dd.folders.filter(f => !deleteSet.has(f.id));
+                // 해당 폴더의 프롬프트 할당 해제
+                for (const [pid, fid] of Object.entries(dd.assignments)) {
+                    if (deleteSet.has(fid)) delete dd.assignments[pid];
+                }
+                markDirty(); overlay.remove(); rebuildFolderUI();
+            });
+        });
+
         inner.querySelector('.pf-popup-cancel').addEventListener('click', () => overlay.remove());
+        inner.querySelector('.pf-popup-cancel2').addEventListener('click', () => overlay.remove());
     }
 
     /* ─── 설정 가져오기 / 내보내기 ─── */
     function showImportSettingsPopup() {
         const { extensionSettings } = ctx();
         const allPresets = extensionSettings[MODULE_NAME]?.presets || {};
-        const presetNames = Object.keys(allPresets).filter(p => p !== workingPreset);
+
+        // ★ [이름 동기화] ST의 실제 프리셋 드롭다운과 교차 검증하여
+        //   이름이 변경되거나 삭제된 프리셋은 목록에서 제외
+        const stPresetNames = new Set();
+        const sel = document.getElementById('settings_preset_openai');
+        if (sel) {
+            Array.from(sel.options).forEach(opt => {
+                const name = (opt.textContent || '').trim() || opt.value;
+                if (name) stPresetNames.add(name);
+            });
+        }
+        const presetNames = Object.keys(allPresets).filter(p => p !== workingPreset && stPresetNames.has(p));
 
         const inner = document.createElement('div');
         inner.className = 'pf-modal-inner';
@@ -886,8 +1028,8 @@
             <div class="pf-popup-field">
                 <label>파일로 내보내기 / 가져오기 (.json):</label>
                 <div style="display:flex;gap:4px;margin-top:4px;">
-                    <button class="pf-btn menu_button pf-export-file-btn" style="flex:1;">📤 파일로 내보내기</button>
-                    <button class="pf-btn menu_button pf-import-file-btn" style="flex:1;">📥 파일에서 가져오기</button>
+                    <button class="pf-btn menu_button pf-export-file-btn" style="flex:1;">📤 내보내기</button>
+                    <button class="pf-btn menu_button pf-import-file-btn" style="flex:1;">📥 가져오기</button>
                     <input type="file" class="pf-import-file-input" accept=".json" style="display:none;">
                 </div>
             </div>
@@ -1224,6 +1366,8 @@
     }
 
     /* ─── 프리셋 변경 감지 ─── */
+    let isSwitchingPreset = false; // ★ 깜빡임 방지용 플래그
+
     function checkPresetChange() {
         const list = getListContainer();
         if (!list || searchHasFocus) return;
@@ -1231,7 +1375,14 @@
         if (cp !== lastPreset) {
             const isFirstLoad = (lastPreset === '');
             lastPreset = cp;
-            loadWorkingData(isFirstLoad); // 전환된 경우 저장되지 않은 내용을 버리고 저장된 데이터에서 다시 불러오기
+
+            // ★ [깜빡임 방지] 프리셋 전환 시 리스트를 숨김 (리빌드 완료 후 _doRebuild에서 다시 표시)
+            if (!isFirstLoad) {
+                isSwitchingPreset = true;
+                list.style.visibility = 'hidden';
+            }
+
+            loadWorkingData(isFirstLoad);
             list.querySelectorAll('.pf-toolbar').forEach(el => el.remove());
             rebuildFolderUI();
         }
@@ -1242,6 +1393,150 @@
         if (sel) {
             sel.addEventListener('change', checkPresetChange);
         }
+    }
+
+    /* ─── [드래그 렉 해결] SortableJS 패치 ─── */
+    // SillyTavern의 SortableJS는 리스트 컨테이너의 "모든 직접 자식 요소"를 드래그 가능한 아이템으로 취급합니다.
+    // 우리 확장 프로그램이 30+개의 폴더 헤더(.pf-folder-header)를 같은 컨테이너에 삽입하면,
+    // SortableJS는 mousedown 시 130+개(프롬프트 100 + 폴더 30)의 요소 모두에 대해
+    // getBoundingClientRect() 위치 계산 + 내부 캐시 갱신을 수행하여 심각한 렉이 발생합니다.
+    // 이 함수는 SortableJS에게 "[data-pm-identifier] 속성이 있는 요소만 드래그 아이템이야!" 라고
+    // 알려줘서, 폴더 헤더들을 완전히 무시하게 만듭니다.
+    function patchSortable(list) {
+        if (!list || list._pfSortablePatched) return;
+        try {
+            let sortable = null;
+
+            // 방법 1: 전역 Sortable.get()
+            if (window.Sortable && typeof Sortable.get === 'function') {
+                try { sortable = Sortable.get(list); } catch (e) { }
+            }
+
+            // 방법 2: 요소에 저장된 SortableJS 인스턴스 직접 탐색
+            if (!sortable) {
+                for (const key of Object.keys(list)) {
+                    try {
+                        const val = list[key];
+                        if (val && typeof val === 'object' && typeof val.option === 'function') {
+                            sortable = val;
+                            break;
+                        }
+                    } catch (e) { }
+                }
+            }
+
+            // 방법 3: Symbol 프로퍼티 탐색 (최신 SortableJS)
+            if (!sortable && Object.getOwnPropertySymbols) {
+                for (const sym of Object.getOwnPropertySymbols(list)) {
+                    try {
+                        const val = list[sym];
+                        if (val && typeof val === 'object' && typeof val.option === 'function') {
+                            sortable = val;
+                            break;
+                        }
+                    } catch (e) { }
+                }
+            }
+
+            if (sortable && typeof sortable.option === 'function') {
+                // ★ 핵심: SortableJS가 프롬프트 행만 드래그 아이템으로 인식하도록 설정
+                sortable.option('draggable', '[data-pm-identifier]');
+                // ★ 드래그 중 애니메이션 완전 비활성화 (ALL children에 getBoundingClientRect 호출 방지)
+                sortable.option('animation', 0);
+                // ★ 우리가 삽입한 요소를 드래그 불가능으로 필터링
+                const curFilter = sortable.options.filter || '';
+                if (!curFilter.includes('.pf-injected')) {
+                    sortable.option('filter', curFilter ? `${curFilter}, .pf-injected` : '.pf-injected');
+                }
+                list._pfSortablePatched = true;
+                console.log('[PF] ✅ SortableJS 패치 완료: draggable + animation:0 + filter');
+            }
+        } catch (e) {
+            console.warn('[PF] patchSortable error:', e);
+        }
+    }
+
+    /* ─── [드래그 렉 해결] 드래그 중 폴더 헤더 DOM 제거 + Observer 비활성화 ─── */
+    // SortableJS는 `draggable` 필터와 관계없이 컨테이너의 "모든 직접 자식"을 순회하며
+    // 위치 계산(getBoundingClientRect)+ 내부 캐시 갱신을 수행합니다.
+    // 근본적 해결책: 프롬프트를 드래그하는 순간, 폴더 헤더를 DOM에서 완전히 제거하여
+    // SortableJS가 보는 DOM을 실리태번 순정 상태와 동일하게 만듭니다.
+    function setupDragOptimization(list) {
+        if (!list || list._pfDragOpt) return;
+        list._pfDragOpt = true;
+
+        list.addEventListener('pointerdown', (e) => {
+            // 프롬프트 행을 눌렀을 때만 (폴더 헤더나 도구 모음은 제외)
+            if (!e.target.closest('[data-pm-identifier]')) return;
+
+            const observerTarget = document.getElementById('completion_prompt_manager')
+                || document.querySelector('.completion_prompt_manager');
+
+            // ★ 1. Observer 완전 차단 (드래그 도중 확장 작업 0%)
+            if (observer) observer.disconnect();
+
+            // ★ 2. 폴더 헤더를 제거하기 전에: 각 폴더의 첫 번째 프롬프트에 폴더 이름을 마킹
+            //    CSS ::before 로 폴더 이름을 표시하므로 DOM 요소 추가 0개 = SortableJS 영향 없음!
+            const d = getPresetData();
+            const folderNameMap = {};
+            d.folders.forEach(f => { folderNameMap[f.id] = f.name; });
+
+            // 각 폴더의 첫 번째 프롬프트에 라벨 표시
+            const seenFolders = new Set();
+            list.querySelectorAll('[data-pf-folder]').forEach(el => {
+                const fId = el.getAttribute('data-pf-folder');
+                if (fId && !seenFolders.has(fId) && folderNameMap[fId]) {
+                    el.setAttribute('data-pf-drag-label', '📁 ' + folderNameMap[fId]);
+                    seenFolders.add(fId);
+                }
+            });
+
+            // ★ 3. 폴더 헤더/미분류 헤더를 DOM에서 제거 (툴바는 유지)
+            //    SortableJS가 보는 자식 요소 = 프롬프트 행만 남음 = 실리태번 순정과 동일!
+            const removedHeaders = [];
+            list.querySelectorAll('.pf-injected:not(.pf-toolbar)').forEach(el => {
+                removedHeaders.push(el);
+                el.remove();
+            });
+
+            // ★ 4. 접혀있던(숨겨져있던) 프롬프트를 일시적으로 표시
+            list.querySelectorAll('[data-pf-folder]').forEach(el => {
+                if (el.style.display === 'none') {
+                    el.style.display = '';
+                    el.setAttribute('data-pf-was-hidden', '1');
+                }
+            });
+
+            console.log('[PF] 드래그 시작: 폴더 헤더 제거 + ' + seenFolders.size + '개 폴더 라벨 표시');
+
+            const restore = () => {
+                document.removeEventListener('pointerup', restore);
+                document.removeEventListener('pointercancel', restore);
+                // SortableJS가 DOM 조작을 마칠 때까지 100ms 대기 후 복원
+                setTimeout(() => {
+                    if (observerTarget && observer) {
+                        observer.observe(observerTarget, { childList: true, subtree: true });
+                    }
+                    // 드래그 완료 후 전체 UI 재구성 (폴더 헤더 복원 포함)
+                    wasDragging = true;
+                    needsSTSync = true;
+                    rebuildFolderUI();
+                    console.log('[PF] 드래그 종료: UI 복원 완료');
+                }, 100);
+            };
+
+            document.addEventListener('pointerup', restore, { once: true });
+            document.addEventListener('pointercancel', restore, { once: true });
+
+            // 안전장치: 10초 후 강제 복원
+            setTimeout(() => {
+                if (observerTarget && observer) {
+                    try { observer.observe(observerTarget, { childList: true, subtree: true }); } catch (e) { }
+                }
+            }, 10000);
+        }, { passive: true });
+
+        console.log('[PF] ✅ 드래그 최적화 설정 완료');
     }
 
     /* ─── MutationObserver 관찰자 ─── */
@@ -1376,6 +1671,22 @@
                 checkPresetChange(); // 초기 로드 진입점
                 setupObserver();
                 rebuildFolderUI();
+                // [드래그 렉 해결] SortableJS 패치 및 드래그 최적화 설정
+                // ST가 SortableJS를 아직 초기화하지 않았을 수 있으므로 지연 호출
+                setTimeout(() => {
+                    const l = getListContainer();
+                    if (l) {
+                        patchSortable(l);
+                        setupDragOptimization(l);
+                    }
+                }, 500);
+                // 2차 시도: ST가 늦게 SortableJS를 초기화하는 경우 대비
+                setTimeout(() => {
+                    const l = getListContainer();
+                    if (l && !l._pfSortablePatched) {
+                        patchSortable(l);
+                    }
+                }, 3000);
             }
             else setTimeout(trySetup, 1000);
         };
