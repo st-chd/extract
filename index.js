@@ -636,16 +636,34 @@
         nameSpan.className = 'pf-folder-name';
         nameSpan.textContent = folder.name;
 
+        // 우측 액션 버튼들 래퍼
+        const acts = document.createElement('div');
+        acts.style.display = 'flex';
+        acts.style.gap = '6px';
+        acts.style.marginLeft = 'auto';
+
+        // ⚡ 전체 토글 버튼
+        const tglBtn = document.createElement('span');
+        tglBtn.className = 'pf-folder-edit-btn'; // 기존 편집 버튼용 클래스 재활용 (opacity, hover 효과 등)
+        tglBtn.textContent = '⚡';
+        tglBtn.title = '전체 토글';
+        tglBtn.style.marginLeft = '0'; // 래퍼에 marginLeft auto를 주었으므로 초기화
+        tglBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleAllPromptsInFolder(folder.id); });
+
         // ✏️ 편집 (축소된 버튼 — 호버/터치 시만 표시)
         const editBtn = document.createElement('span');
         editBtn.className = 'pf-folder-edit-btn';
         editBtn.textContent = '✏️';
         editBtn.title = '편집';
+        editBtn.style.marginLeft = '0';
         editBtn.addEventListener('click', (e) => { e.stopPropagation(); showFolderEditPopup(folder); });
+
+        acts.appendChild(tglBtn);
+        acts.appendChild(editBtn);
 
         header.appendChild(arrow);
         header.appendChild(nameSpan);
-        header.appendChild(editBtn);
+        header.appendChild(acts);
 
         // 클릭 → 접기/펼치기
         header.addEventListener('click', () => { toggleCollapse(folder.id); rebuildFolderUI(); });
@@ -660,11 +678,6 @@
         inner.innerHTML = `
             <div class="pf-popup-title" style="display:flex;align-items:center;justify-content:center;gap:8px">✏️ 폴더 편집<button class="pf-btn menu_button pf-delete-folder" style="color:#ff6b6b;font-size:11px;padding:2px 6px!important;margin-left:auto">🗑️ 삭제</button></div>
             <div class="pf-popup-field"><label>이름:</label><input type="text" class="pf-edit-name text_pole" value="${folder.name.replace(/"/g, '&quot;')}"></div>
-            <div class="pf-popup-field" style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">
-                <button class="pf-btn menu_button pf-move-up">▲ 위로</button>
-                <button class="pf-btn menu_button pf-move-down">▼ 아래로</button>
-                <button class="pf-btn menu_button pf-toggle-all">⚡ 전체 토글</button>
-            </div>
             <div class="pf-color-row"><label>배경색:</label><input type="color" class="pf-cbg" value="${folder.bgColor || '#3a3a3a'}"><input type="text" class="pf-cbg-hex text_pole" placeholder="(UI 설정 따름)" value="${folder.bgColor || ''}"><button class="pf-btn menu_button pf-reset-bg" style="font-size:11px;padding:2px 6px!important" title="UI 설정 사용">↺</button></div>
             <div class="pf-color-row"><label>글자색:</label><input type="color" class="pf-ctx" value="${folder.textColor || '#cccccc'}"><input type="text" class="pf-ctx-hex text_pole" placeholder="(UI 설정 따름)" value="${folder.textColor || ''}"><button class="pf-btn menu_button pf-reset-tx" style="font-size:11px;padding:2px 6px!important" title="UI 설정 사용">↺</button></div>
             <div class="pf-popup-actions">
@@ -680,10 +693,7 @@
         txH.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(txH.value)) txP.value = txH.value; });
         inner.querySelector('.pf-reset-bg').addEventListener('click', () => { bgP.value = '#3a3a3a'; bgH.value = ''; });
         inner.querySelector('.pf-reset-tx').addEventListener('click', () => { txP.value = '#cccccc'; txH.value = ''; });
-        // ▲▼ 이동 + ⚡ 토글
-        inner.querySelector('.pf-move-up').addEventListener('click', () => { moveFolderUp(folder.id); overlay.remove(); });
-        inner.querySelector('.pf-move-down').addEventListener('click', () => { moveFolderDown(folder.id); overlay.remove(); });
-        inner.querySelector('.pf-toggle-all').addEventListener('click', () => { toggleAllPromptsInFolder(folder.id); overlay.remove(); });
+        inner.querySelector('.pf-reset-tx').addEventListener('click', () => { txP.value = '#cccccc'; txH.value = ''; });
         inner.querySelector('.pf-popup-ok').addEventListener('click', () => {
             const n = inner.querySelector('.pf-edit-name').value.trim();
             if (n) renameFolder(folder.id, n);
